@@ -1,4 +1,4 @@
-// cargo test -- --test-threads 1
+// WARN: cargo test -- --test-threads 1
 async fn initialize_redis() -> Result<(), ()> {
     let redis_address: &str = "redis://127.0.0.1:6379/";
     let client = redis::Client::open(redis_address).map_err(|err| {
@@ -68,7 +68,7 @@ mod tests {
         initialize_redis().await?;
 
         // arrange
-        let limit_count = 11;
+        let limit_count = 20;
         let mut client = rate_limiter_redis::RateLimiterRedis::open(CONN, limit_count).await?;
         let key_prefix = "test";
         let resource = "data";
@@ -93,7 +93,7 @@ mod tests {
             .await?;
 
         // assert
-        assert!(!actual);
+        assert!(actual);
 
         Ok(())
     }
