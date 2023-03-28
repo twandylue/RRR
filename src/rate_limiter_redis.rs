@@ -1,6 +1,5 @@
+use redis::{Commands, Connection};
 use std::time::{self, Duration, SystemTime};
-
-use redis::Connection;
 
 pub struct RateLimiterRedis {
     pub conn: Connection,
@@ -31,8 +30,7 @@ impl RateLimiterRedis {
         let window = (now.as_secs() / size.as_secs()) * size.as_secs();
         let key = format!("{}:{}:{}:{}", key_prefix, resource, subject, window);
 
-        // TODO: how to convert?
-        let count: u64 = redis::pipe()
+        let (count,) : (u64,)= redis::pipe()
             .atomic()
             .incr(&key, 1)
             .expire(&key, size.as_secs() as usize)
@@ -42,18 +40,37 @@ impl RateLimiterRedis {
             .query(&mut self.conn)
             .map_err(|err| eprintln!("Error: could not set the key-value into Redis when using fixed window method: {err}"))?;
 
-        // eprintln!("result: {count:?}");
+        Ok(count)
+    }
+
+    pub async fn fetch_fixed_window(
+        &mut self,
+        key_prefix: &str,
+        resource: &str,
+        subject: &str,
+        size: Duration,
+    ) -> Result<u64, ()> {
+        let now = SystemTime::now().duration_since(time::UNIX_EPOCH).unwrap();
+        let window = (now.as_secs() / size.as_secs()) * size.as_secs();
+        let key = format!("{key_prefix}:{resource}:{subject}:{window}");
+
+        let count: u64 = self
+            .conn
+            .get(key)
+            .map_err(|err| eprintln!("Error: could not get the key from Redis: {err}"))?;
 
         Ok(count)
     }
 
-    pub async fn fetch_fixed_window() -> Result<u64, ()> {
-        todo!()
-    }
+    pub async fn canMakeRequest(
+        &mut self,
+        key_prefix: &str,
+        resource: &str,
+        subject: &str,
+        size: Duration,
+    ) -> Result<bool, ()> {
+        let count = Self::fetch_fixed_window(self, key_prefix, resource, subject, size).await?;
 
-    pub async fn canMakeRequest(&self) -> Result<bool, ()> {
-        let count = Self::fetch_fixed_window().await?;
-
-        Ok(count >= self.limit)
+        Ok(!(count >= self.limit))
     }
 }
