@@ -26,14 +26,14 @@ mod tests {
 
     /// Tests the requests exceed the rate limit.
     #[tokio::test]
-    async fn fixed_window_redis_case1() -> Result<(), ()> {
+    async fn sliding_log_redis_case1() -> Result<(), ()> {
         // prev
         initialize_redis().await?;
 
         // arrange
         let limit_count = 5;
         let mut client = rate_limiter_redis::RateLimiterRedis::open(CONN, limit_count).await?;
-        let key_prefix = "test";
+        let key_prefix = "test2";
         let resource = "data";
         let subject = "andy";
         let size = Duration::from_secs(1);
@@ -41,18 +41,20 @@ mod tests {
         // act
         for c in 0..11 {
             client
-                .record_fixed_window(key_prefix, resource, subject, size)
+                .record_sliding_log(key_prefix, resource, subject, size)
                 .await?;
 
             let count = client
-                .fetch_fixed_window(key_prefix, resource, subject, size)
+                .fetch_sliding_log(key_prefix, resource, subject)
                 .await?;
 
             assert_eq!(count, c + 1);
+
+            tokio::time::sleep(Duration::from_millis(1)).await;
         }
 
         let actual = client
-            .canMakeRequest_fixed_window(key_prefix, resource, subject, size)
+            .canMakeRequest_sliding_log(key_prefix, resource, subject)
             .await?;
 
         // assert
@@ -63,14 +65,14 @@ mod tests {
 
     /// Tests the requests do not exceed the rate limit.
     #[tokio::test]
-    async fn fixed_window_redis_case2() -> Result<(), ()> {
+    async fn sliding_log_redis_case2() -> Result<(), ()> {
         // prev
         initialize_redis().await?;
 
         // arrange
         let limit_count = 20;
         let mut client = rate_limiter_redis::RateLimiterRedis::open(CONN, limit_count).await?;
-        let key_prefix = "test";
+        let key_prefix = "test2";
         let resource = "data";
         let subject = "andy";
         let size = Duration::from_secs(1);
@@ -78,18 +80,20 @@ mod tests {
         // act
         for c in 0..11 {
             client
-                .record_fixed_window(key_prefix, resource, subject, size)
+                .record_sliding_log(key_prefix, resource, subject, size)
                 .await?;
 
             let count = client
-                .fetch_fixed_window(key_prefix, resource, subject, size)
+                .fetch_sliding_log(key_prefix, resource, subject)
                 .await?;
 
             assert_eq!(count, c + 1);
+
+            tokio::time::sleep(Duration::from_millis(1)).await;
         }
 
         let actual = client
-            .canMakeRequest_fixed_window(key_prefix, resource, subject, size)
+            .canMakeRequest_sliding_log(key_prefix, resource, subject)
             .await?;
 
         // assert
