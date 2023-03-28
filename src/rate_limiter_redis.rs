@@ -1,0 +1,59 @@
+use std::time::{self, Duration, SystemTime};
+
+use redis::Connection;
+
+pub struct RateLimiterRedis {
+    pub conn: Connection,
+    pub limit: u64,
+}
+
+impl RateLimiterRedis {
+    pub async fn open(redis_address: &str, limit: u64) -> Result<Self, ()> {
+        let client = redis::Client::open(redis_address).map_err(|err| {
+            eprintln!("Error: could not open the connection to the Redis({redis_address}): {err}")
+        })?;
+
+        let conn = client.get_connection().map_err(|err| {
+            eprintln!("Error: client could not get the connection to the Redis: {err}")
+        })?;
+
+        Ok(RateLimiterRedis { conn, limit })
+    }
+
+    pub async fn record_fixed_window(
+        &mut self,
+        key_prefix: &str,
+        resource: &str,
+        subject: &str,
+        size: Duration,
+    ) -> Result<u64, ()> {
+        let now = SystemTime::now().duration_since(time::UNIX_EPOCH).unwrap();
+        let window = (now.as_secs() / size.as_secs()) * size.as_secs();
+        let key = format!("{}:{}:{}:{}", key_prefix, resource, subject, window);
+
+        // TODO: how to convert?
+        let count: u64 = redis::pipe()
+            .atomic()
+            .incr(&key, 1)
+            .expire(&key, size.as_secs() as usize)
+            .ignore()
+            // .query_async(&mut self.conn)
+            // .await
+            .query(&mut self.conn)
+            .map_err(|err| eprintln!("Error: could not set the key-value into Redis when using fixed window method: {err}"))?;
+
+        // eprintln!("result: {count:?}");
+
+        Ok(count)
+    }
+
+    pub async fn fetch_fixed_window() -> Result<u64, ()> {
+        todo!()
+    }
+
+    pub async fn canMakeRequest(&self) -> Result<bool, ()> {
+        let count = Self::fetch_fixed_window().await?;
+
+        Ok(count >= self.limit)
+    }
+}
