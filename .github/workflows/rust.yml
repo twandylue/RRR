@@ -11,27 +11,27 @@ env:
 
 jobs:
   check:
-      name: Check
-      runs-on: ubuntu-latest
-      steps:
-        - uses: actions/checkout@v2
-        - uses: actions-rs/toolchain@v1
-          with:
-            profile: minimal
-            toolchain: stable
-            override: true
-        - run: |
-            cargo check
+    name: Check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      - uses: actions-rs/toolchain@v1
+        with:
+          profile: minimal
+          toolchain: stable
+          override: true
+      - run: |
+          cargo check
   test:
     name: Test Suite
     runs-on: ubuntu-latest
 
-    services:
-      redis:
-        image: redis:7.0.10
-        ports:
-          - 6379:6379
-        options: --name RRR-redis-container
+    # services:
+    #   redis:
+    #     image: redis:7.0.10
+    #     ports:
+    #       - 6379:6379
+    #     options: --name RRR-redis-container
 
     steps:
       - uses: actions/checkout@v2
@@ -40,8 +40,10 @@ jobs:
           profile: minimal
           toolchain: stable
           override: true
-      - env:
-          REDIS_URL: redis://localhost:6379/
+      # - env:
+      #     REDIS_URL: redis://localhost:6379/
+      - name: Setup Redis
+        uses: nnhy/redis-github-action@v1.0
       - run: cargo test --all -- --test-threads 1
   fmt:
     name: Rustfmt
