@@ -54,7 +54,7 @@ mod tests {
         }
 
         let actual = client
-            .canMakeRequest_sliding_log(key_prefix, resource, subject)
+            .can_make_request_sliding_log(key_prefix, resource, subject)
             .await?;
 
         // assert
@@ -93,7 +93,7 @@ mod tests {
         }
 
         let actual = client
-            .canMakeRequest_sliding_log(key_prefix, resource, subject)
+            .can_make_request_sliding_log(key_prefix, resource, subject)
             .await?;
 
         // assert

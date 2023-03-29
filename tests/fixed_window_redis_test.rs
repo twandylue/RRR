@@ -52,7 +52,7 @@ mod tests {
         }
 
         let actual = client
-            .canMakeRequest_fixed_window(key_prefix, resource, subject, size)
+            .can_make_request_fixed_window(key_prefix, resource, subject, size)
             .await?;
 
         // assert
@@ -89,7 +89,7 @@ mod tests {
         }
 
         let actual = client
-            .canMakeRequest_fixed_window(key_prefix, resource, subject, size)
+            .can_make_request_fixed_window(key_prefix, resource, subject, size)
             .await?;
 
         // assert

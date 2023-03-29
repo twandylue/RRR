@@ -62,7 +62,7 @@ impl RateLimiterRedis {
         Ok(count)
     }
 
-    pub async fn canMakeRequest_fixed_window(
+    pub async fn can_make_request_fixed_window(
         &mut self,
         key_prefix: &str,
         resource: &str,
@@ -114,7 +114,7 @@ impl RateLimiterRedis {
         Ok(count)
     }
 
-    pub async fn canMakeRequest_sliding_log(
+    pub async fn can_make_request_sliding_log(
         &mut self,
         key_prefix: &str,
         resource: &str,
@@ -125,5 +125,9 @@ impl RateLimiterRedis {
             .await?;
 
         Ok(count < self.limit)
+    }
+
+    pub async fn record_sliding_window(&mut self) -> Result<u64, ()> {
+        todo!()
     }
 }
