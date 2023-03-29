@@ -127,7 +127,89 @@ impl RateLimiterRedis {
         Ok(count < self.limit)
     }
 
-    pub async fn record_sliding_window(&mut self) -> Result<u64, ()> {
-        todo!()
+    pub async fn record_sliding_window(
+        &mut self,
+        key_prefix: &str,
+        resource: &str,
+        subject: &str,
+        size: Duration,
+    ) -> Result<u64, ()> {
+        let now = SystemTime::now().duration_since(time::UNIX_EPOCH).unwrap();
+        let current_window = (now.as_secs() / size.as_secs()) * size.as_secs();
+        let current_key = format!("{key_prefix}:{resource}:{subject}:{current_window}");
+        let previous_window = (now.as_secs() / size.as_secs()) * size.as_secs() - size.as_secs();
+        let previous_key = format!("{key_prefix}:{resource}:{subject}:{previous_window}");
+
+        let (previous_count, current_count): (Option<u64>, Option<u64>) = redis::pipe()
+            .atomic()
+            .get(&previous_key)
+            .incr(&current_key, 1)
+            .expire(&current_key, (size.as_secs() * 2) as usize)
+            .ignore()
+            .query(&mut self.conn)
+            .map_err(|err| {
+                eprintln!("Error: could not set the key-value in record sliding window: {err}")
+            })?;
+
+        Ok(Self::sliding_window_counter(
+            previous_count,
+            current_count,
+            now,
+            size,
+        ))
+    }
+
+    fn sliding_window_counter(
+        previous_count: Option<u64>,
+        current_count: Option<u64>,
+        now: Duration,
+        size: Duration,
+    ) -> u64 {
+        let current_window = (now.as_secs() / size.as_secs()) * size.as_secs();
+        let next_window = current_window + size.as_secs();
+        let weight = (Duration::from_secs(next_window).as_millis() - now.as_millis()) as f64
+            / size.as_millis() as f64;
+
+        current_count.unwrap_or(0) + (previous_count.unwrap_or(0) as f64 * weight).round() as u64
+    }
+
+    pub async fn fetch_sliding_window(
+        &mut self,
+        key_prefix: &str,
+        resource: &str,
+        subject: &str,
+        size: Duration,
+    ) -> Result<u64, ()> {
+        let now = SystemTime::now().duration_since(time::UNIX_EPOCH).unwrap();
+        let current_window = (now.as_secs() / size.as_secs()) * size.as_secs();
+        let current_key = format!("{key_prefix}:{resource}:{subject}:{current_window}");
+        let previous_window = (now.as_secs() / size.as_secs()) * size.as_secs() - size.as_secs();
+        let previous_key = format!("{key_prefix}:{resource}:{subject}:{previous_window}");
+
+        let (previous_count, current_count): (Option<u64>, Option<u64>) = self
+            .conn
+            .get(vec![previous_key, current_key])
+            .map_err(|err| {
+                eprintln!("Error: could not fetch the key-value in fetch sliding window: {err}")
+            })?;
+
+        Ok(Self::sliding_window_counter(
+            previous_count,
+            current_count,
+            now,
+            size,
+        ))
+    }
+
+    pub async fn can_make_request_sliding_window(
+        &mut self,
+        key_prefix: &str,
+        resource: &str,
+        subject: &str,
+        size: Duration,
+    ) -> Result<bool, ()> {
+        let count = Self::fetch_sliding_window(self, key_prefix, resource, subject, size).await?;
+
+        Ok(count < self.limit)
     }
 }
