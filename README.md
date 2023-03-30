@@ -38,6 +38,18 @@ $ cargo test --all -- --test-threads 1
 
 - Cons
 
+### Leaky Bucket
+
+- Pros
+
+- Cons
+
+### Token Bucked
+
+- Pros
+
+- Cons
+
 ## Conclusions
 
 <!-- TODO: -->
@@ -45,3 +57,4 @@ $ cargo test --all -- --test-threads 1
 ## References
 
 - [Rate Limiting in Rust Using Redis](https://outcrawl.com/rust-redis-rate-limiting)
+- [Rate Limiting Algorithms using Redis](https://medium.com/@SaiRahulAkarapu/rate-limiting-algorithms-using-redis-eb4427b47e33)
