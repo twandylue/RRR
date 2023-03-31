@@ -3,7 +3,7 @@ use std::time::{self, Duration, SystemTime};
 
 pub struct RateLimiterRedis {
     pub conn: Connection,
-    pub limit: u64,
+    pub limit_per_sec: u64,
 }
 
 impl RateLimiterRedis {
@@ -18,7 +18,7 @@ impl RateLimiterRedis {
 
         Ok(RateLimiterRedis {
             conn,
-            limit: limit_per_sec,
+            limit_per_sec,
         })
     }
 
@@ -72,7 +72,7 @@ impl RateLimiterRedis {
     ) -> Result<bool, ()> {
         let count = Self::fetch_fixed_window(self, key_prefix, resource, subject, size).await?;
 
-        Ok(count < self.limit)
+        Ok(count < self.limit_per_sec)
     }
 
     pub async fn record_sliding_log(
@@ -125,7 +125,7 @@ impl RateLimiterRedis {
             .fetch_sliding_log(key_prefix, resource, subject)
             .await?;
 
-        Ok(count < self.limit)
+        Ok(count < self.limit_per_sec)
     }
 
     pub async fn record_sliding_window(
@@ -211,7 +211,7 @@ impl RateLimiterRedis {
     ) -> Result<bool, ()> {
         let count = Self::fetch_sliding_window(self, key_prefix, resource, subject, size).await?;
 
-        Ok(count < self.limit)
+        Ok(count < self.limit_per_sec)
     }
 
     pub async fn record_leaky_bucket(
@@ -223,24 +223,35 @@ impl RateLimiterRedis {
     ) -> Result<u64, ()> {
         let now = SystemTime::now().duration_since(time::UNIX_EPOCH).unwrap();
         let curr_window = (now.as_secs() / size.as_secs()) * size.as_secs();
-        let pre_window = (now.as_secs() / size.as_secs()) * size.as_secs() - size.as_secs();
         let key = format!("{key_prefix}:{resource}:{subject}");
 
-        let pos = Self::find_pos_in_list(self, &key, pre_window).await?;
-        let end_pos = match pos {
-            Some(n) => n - 1,
-            // Some(n) => n,
-            // None => -1,
-            None => 0,
+        let pos = Self::find_pos_in_list(self, &key, curr_window, 1).await?;
+        let count = match pos {
+            Some(n) => {
+                let (c,): (u64,) = redis::pipe()
+                    .atomic()
+                    .ltrim(&key, n, -1)
+                    .ignore()
+                    .rpush(&key, curr_window)
+                    .query(&mut self.conn)
+                    .map_err(|err| {
+                        eprintln!("Error: could not insert the key-value into Redis: {err}")
+                    })?;
+                c
+            }
+            None => {
+                let (c,): (u64,) = redis::pipe()
+                    .atomic()
+                    .ltrim(&key, 0, -1)
+                    .ignore()
+                    .rpush(&key, curr_window)
+                    .query(&mut self.conn)
+                    .map_err(|err| {
+                        eprintln!("Error: could not insert the key-value into Redis: {err}")
+                    })?;
+                c
+            }
         };
-
-        let (count,): (u64,) = redis::pipe()
-            .atomic()
-            .ltrim(&key, 0, end_pos)
-            .ignore()
-            .rpush(&key, curr_window)
-            .query(&mut self.conn)
-            .map_err(|err| eprintln!("Error: could not insert the key-value into Redis: {err}"))?;
 
         Ok(count)
     }
@@ -253,36 +264,46 @@ impl RateLimiterRedis {
         size: Duration,
     ) -> Result<u64, ()> {
         let now = SystemTime::now().duration_since(time::UNIX_EPOCH).unwrap();
-        let pre_window = (now.as_secs() / size.as_secs()) * size.as_secs() - size.as_secs();
+        let curr_window = (now.as_secs() / size.as_secs()) * size.as_secs();
+        let prev_window = (now.as_secs() / size.as_secs()) * size.as_secs() - size.as_secs();
         let key = format!("{key_prefix}:{resource}:{subject}");
 
-        // TODO: How to handle first time?
-        let pos = Self::find_pos_in_list(self, &key, pre_window).await?;
-        let end_pos = match pos {
-            Some(n) => n - 1 + 1,
-            // Some(n) => n,
-            // None => -1,
+        println!("curr_window: {curr_window}");
+        println!("prev_window: {prev_window}");
+
+        let pos = Self::find_pos_in_list(self, &key, curr_window, 1).await?;
+        let prev_pos = Self::find_pos_in_list(self, &key, prev_window, 1).await?;
+
+        // TODO: distinct problem
+        let count = match pos {
+            // let count = match prev_pos {
+            Some(n) => {
+                let (c,): (Vec<u64>,) = redis::pipe()
+                    .atomic()
+                    .lrange(&key, n, -1)
+                    // .ignore()
+                    // .llen(&key)
+                    .query(&mut self.conn)
+                    .map_err(|err| {
+                        eprintln!("Error: could not fetch the key-value in Redis: {err}")
+                    })?;
+                c.len() as u64
+            }
             None => 0,
         };
 
-        Ok(end_pos as u64)
-
-        // TODO:
-        // let (count,): (u64,) = redis::pipe()
-        //     .atomic()
-        //     .ltrim(&key, 0, end_pos)
-        //     .ignore()
-        //     .llen(&key)
-        //     .query(&mut self.conn)
-        //     .map_err(|err| eprintln!("Error: could not fetch the key-value in Redis: {err}"))?;
-
-        // Ok(count)
+        Ok(count)
     }
 
-    async fn find_pos_in_list(&mut self, key: &str, ele: u64) -> Result<Option<isize>, ()> {
+    async fn find_pos_in_list(
+        &mut self,
+        key: &str,
+        ele: u64,
+        rank: isize,
+    ) -> Result<Option<isize>, ()> {
         let (start_pos,): (Option<isize>,) = redis::pipe()
             .atomic()
-            .lpos(&key, ele, LposOptions::default().rank(1))
+            .lpos(&key, ele, LposOptions::default().rank(rank))
             .query(&mut self.conn)
             .map_err(|err| {
                 eprintln!("Error: could not find the position of element({ele} in the list: {err})")
@@ -291,7 +312,7 @@ impl RateLimiterRedis {
         Ok(start_pos)
     }
 
-    pub async fn can_make_request_leaky_bucket(
+    pub async fn allow_request_leaky_bucket(
         &mut self,
         key_prefix: &str,
         resource: &str,
@@ -300,6 +321,6 @@ impl RateLimiterRedis {
     ) -> Result<bool, ()> {
         let count = Self::fetch_leaky_bucket(self, key_prefix, resource, subject, size).await?;
 
-        Ok(count < self.limit)
+        Ok(count <= self.limit_per_sec)
     }
 }
