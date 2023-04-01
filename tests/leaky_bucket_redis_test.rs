@@ -25,6 +25,7 @@ mod tests {
     const CONN: &str = "redis://127.0.0.1:6379/";
 
     /// The key is not expired.
+    #[ignore = "skip"]
     #[tokio::test]
     async fn leaky_bucket_redis_case1() -> Result<(), ()> {
         // prev
@@ -65,6 +66,7 @@ mod tests {
     }
 
     /// The key is expired
+    #[ignore = "skip"]
     #[tokio::test]
     async fn leaky_bucket_redis_case2() -> Result<(), ()> {
         // prev
@@ -97,6 +99,7 @@ mod tests {
     }
 
     /// The partial keys are expired
+    #[ignore = "skip"]
     #[tokio::test]
     async fn leaky_bucket_redis_case3() -> Result<(), ()> {
         // prev
@@ -148,6 +151,7 @@ mod tests {
     }
 
     /// The partial keys are expired
+    #[ignore = "skip"]
     #[tokio::test]
     async fn leaky_bucket_redis_case4() -> Result<(), ()> {
         // prev

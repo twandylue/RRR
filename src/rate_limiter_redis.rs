@@ -214,6 +214,7 @@ impl RateLimiterRedis {
         Ok(count < self.limit_per_sec)
     }
 
+    // TODO:
     pub async fn record_leaky_bucket(
         &mut self,
         key_prefix: &str,
@@ -256,6 +257,7 @@ impl RateLimiterRedis {
         Ok(count)
     }
 
+    // TODO:
     pub async fn fetch_leaky_bucket(
         &mut self,
         key_prefix: &str,
@@ -274,7 +276,7 @@ impl RateLimiterRedis {
         let pos = Self::find_pos_in_list(self, &key, curr_window, 1).await?;
         let prev_pos = Self::find_pos_in_list(self, &key, prev_window, 1).await?;
 
-        // TODO: distinct problem
+        // TODO: discrete problem
         let count = match pos {
             // let count = match prev_pos {
             Some(n) => {
@@ -312,6 +314,7 @@ impl RateLimiterRedis {
         Ok(start_pos)
     }
 
+    // TODO:
     pub async fn allow_request_leaky_bucket(
         &mut self,
         key_prefix: &str,
@@ -322,5 +325,82 @@ impl RateLimiterRedis {
         let count = Self::fetch_leaky_bucket(self, key_prefix, resource, subject, size).await?;
 
         Ok(count <= self.limit_per_sec)
+    }
+
+    pub async fn record_token_bucket(
+        &mut self,
+        key_prefix: &str,
+        resource: &str,
+        subject: &str,
+        size: Duration,
+    ) -> Result<bool, ()> {
+        let key = format!("{key_prefix}:{resource}:{subject}");
+        let last_set_time_key = format!("{key}:last_set_time");
+        let remain_req_key = format!("{key}:remain_requests");
+        let (last_set_time,): (Option<u64>,) = redis::pipe()
+            .atomic()
+            .get(&last_set_time_key)
+            .query(&mut self.conn)
+            .map_err(|err| eprintln!("Error: could not get the last setting time: {err}"))?;
+
+        let now = SystemTime::now().duration_since(time::UNIX_EPOCH).unwrap();
+        match last_set_time {
+            Some(last_time) => {
+                // println!("now: {t}", t = now.as_secs());
+                // println!(
+                //     "last_set_time: {last_set_time}",
+                //     last_set_time = last_set_time.unwrap()
+                // );
+                // println!("diff time: {diff}", diff = now.as_secs() - last_time);
+                // println!("size: {s}", s = size.as_secs());
+
+                if now.as_secs() - last_time >= size.as_secs() {
+                    redis::pipe()
+                        .atomic()
+                        .set(&remain_req_key, &self.limit_per_sec * size.as_secs())
+                        .ignore()
+                        .set(&last_set_time_key, now.as_secs())
+                        .ignore()
+                        .query(&mut self.conn)
+                        .map_err(|err| {
+                            eprintln!("Error: could not re-set the remain request by keys: {remain_req_key} and {last_set_time_key}: {err}")
+                        })?;
+                } else {
+                    let (remain_requests,): (u64,) = redis::pipe()
+                        .atomic()
+                        .get(&remain_req_key)
+                        .query(&mut self.conn)
+                        .map_err(|err| {
+                            eprintln!("Error: could not get the remain requests by keys: {remain_req_key} and {last_set_time_key}: {err}")
+                        })?;
+
+                    if remain_requests <= 0 {
+                        return Ok(false);
+                    }
+                }
+            }
+            None => {
+                redis::pipe()
+                    .atomic()
+                    .set(&last_set_time_key, now.as_secs())
+                    .ignore()
+                    .set(&remain_req_key, &self.limit_per_sec * size.as_secs())
+                    .ignore()
+                    .query(&mut self.conn)
+                    .map_err(|err| {
+                        eprintln!(
+                            "Error: could not initiate the first request in token bucket: {err}"
+                        )
+                    })?;
+            }
+        }
+
+        redis::pipe()
+            .atomic()
+            .decr(remain_req_key, 1)
+            .query(&mut self.conn)
+            .map_err(|err| eprintln!("Error: could not decrease the value: {err}"))?;
+
+        Ok(true)
     }
 }
