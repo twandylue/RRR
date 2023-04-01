@@ -24,76 +24,70 @@ mod tests {
 
     const CONN: &str = "redis://127.0.0.1:6379/";
 
-    /// Tests the requests exceed the rate limit.
+    /// Tests the ratelimiting in fixed window.
     #[tokio::test]
     async fn fixed_window_redis_case1() -> Result<(), ()> {
         // prev
         initialize_redis().await?;
 
         // arrange
-        let limit_count = 5;
+        let limit_count = 1;
+        let size = Duration::from_secs(1);
         let mut client = rate_limiter_redis::RateLimiterRedis::open(CONN, limit_count).await?;
         let key_prefix = "test";
         let resource = "data";
         let subject = "andy";
-        let size = Duration::from_secs(1);
 
-        // act
-        for c in 0..11 {
-            client
-                .record_fixed_window(key_prefix, resource, subject, size)
-                .await?;
-
-            let count = client
-                .fetch_fixed_window(key_prefix, resource, subject, size)
-                .await?;
-
-            assert_eq!(count, c + 1);
-        }
+        // act && assert
+        let actual = client
+            .record_fixed_window(key_prefix, resource, subject, size)
+            .await?;
+        assert!(actual);
 
         let actual = client
-            .can_make_request_fixed_window(key_prefix, resource, subject, size)
+            .record_fixed_window(key_prefix, resource, subject, size)
             .await?;
-
-        // assert
         assert!(!actual);
 
         Ok(())
     }
 
-    /// Tests the requests do not exceed the rate limit.
+    /// Tests the reset in fixed window.
     #[tokio::test]
     async fn fixed_window_redis_case2() -> Result<(), ()> {
         // prev
         initialize_redis().await?;
 
         // arrange
-        let limit_count = 20;
+        let limit_count = 1;
+        let size = Duration::from_secs(1);
         let mut client = rate_limiter_redis::RateLimiterRedis::open(CONN, limit_count).await?;
         let key_prefix = "test";
         let resource = "data";
         let subject = "andy";
-        let size = Duration::from_secs(1);
 
-        // act
-        for c in 0..11 {
-            client
-                .record_fixed_window(key_prefix, resource, subject, size)
-                .await?;
-
-            let count = client
-                .fetch_fixed_window(key_prefix, resource, subject, size)
-                .await?;
-
-            assert_eq!(count, c + 1);
-        }
+        // act && assert
+        let actual = client
+            .record_fixed_window(key_prefix, resource, subject, size)
+            .await?;
+        assert!(actual);
 
         let actual = client
-            .can_make_request_fixed_window(key_prefix, resource, subject, size)
+            .record_fixed_window(key_prefix, resource, subject, size)
             .await?;
+        assert!(!actual);
 
-        // assert
+        std::thread::sleep(Duration::from_secs(1));
+
+        let actual = client
+            .record_fixed_window(key_prefix, resource, subject, size)
+            .await?;
         assert!(actual);
+
+        let actual = client
+            .fetch_fixed_window(key_prefix, resource, subject, size)
+            .await?;
+        assert_eq!(1, actual);
 
         Ok(())
     }

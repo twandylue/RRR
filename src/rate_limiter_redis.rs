@@ -28,12 +28,37 @@ impl RateLimiterRedis {
         resource: &str,
         subject: &str,
         size: Duration,
-    ) -> Result<u64, ()> {
+    ) -> Result<bool, ()> {
         let now = SystemTime::now().duration_since(time::UNIX_EPOCH).unwrap();
         let window = (now.as_secs() / size.as_secs()) * size.as_secs();
         let key = format!("{}:{}:{}:{}", key_prefix, resource, subject, window);
 
-        let (count,) : (u64,)= redis::pipe()
+        let (curr_count,): (Option<u64>,) = redis::pipe()
+            .atomic()
+            .get(&key)
+            .query(&mut self.conn)
+            .map_err(|err| {
+                eprintln!("Error: could not get the current requests number in fixed window: {err}")
+            })?;
+
+        match curr_count {
+            Some(c) => {
+                if c >= self.limit_per_sec * size.as_secs() {
+                    return Ok(false);
+                }
+            }
+            None => {
+                redis::pipe()
+                    .atomic()
+                    .set(&key, 0)
+                    .query(&mut self.conn)
+                    .map_err(|err| {
+                        eprintln!("Error: could not initiate the fixed window: {err}")
+                    })?;
+            }
+        };
+
+        redis::pipe()
             .atomic()
             .incr(&key, 1)
             .expire(&key, size.as_secs() as usize)
@@ -41,7 +66,7 @@ impl RateLimiterRedis {
             .query(&mut self.conn)
             .map_err(|err| eprintln!("Error: could not set the key-value into Redis when using fixed window method: {err}"))?;
 
-        Ok(count)
+        Ok(true)
     }
 
     pub async fn fetch_fixed_window(
@@ -61,18 +86,6 @@ impl RateLimiterRedis {
             .map_err(|err| eprintln!("Error: could not get the key from Redis: {err}"))?;
 
         Ok(count)
-    }
-
-    pub async fn can_make_request_fixed_window(
-        &mut self,
-        key_prefix: &str,
-        resource: &str,
-        subject: &str,
-        size: Duration,
-    ) -> Result<bool, ()> {
-        let count = Self::fetch_fixed_window(self, key_prefix, resource, subject, size).await?;
-
-        Ok(count < self.limit_per_sec)
     }
 
     pub async fn record_sliding_log(
@@ -327,6 +340,7 @@ impl RateLimiterRedis {
         Ok(count <= self.limit_per_sec)
     }
 
+    // TODO: expired key?
     pub async fn record_token_bucket(
         &mut self,
         key_prefix: &str,
@@ -346,14 +360,6 @@ impl RateLimiterRedis {
         let now = SystemTime::now().duration_since(time::UNIX_EPOCH).unwrap();
         match last_set_time {
             Some(last_time) => {
-                // println!("now: {t}", t = now.as_secs());
-                // println!(
-                //     "last_set_time: {last_set_time}",
-                //     last_set_time = last_set_time.unwrap()
-                // );
-                // println!("diff time: {diff}", diff = now.as_secs() - last_time);
-                // println!("size: {s}", s = size.as_secs());
-
                 if now.as_secs() - last_time >= size.as_secs() {
                     redis::pipe()
                         .atomic()
