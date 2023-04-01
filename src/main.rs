@@ -2,6 +2,8 @@ use rate_limiter_redis::RateLimiterRedis;
 use std::time::Duration;
 
 mod rate_limiter_redis;
+mod rate_limiter_redis_trait;
+mod token_bucket_rate_limiter_redis;
 
 #[tokio::main]
 async fn main() -> Result<(), ()> {
