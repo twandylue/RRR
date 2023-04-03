@@ -94,10 +94,19 @@ impl RateLimiterRedis {
         resource: &str,
         subject: &str,
         size: Duration,
-    ) -> Result<u64, ()> {
+    ) -> Result<bool, ()> {
         let now = SystemTime::now().duration_since(time::UNIX_EPOCH).unwrap();
         let key = format!("{key_prefix}:{resource}:{subject}");
-        let (count,): (u64,) = redis::pipe()
+
+        let count: u64 = self.conn.zcard(&key).map_err(|err| {
+            eprintln!("Error: could not fetch the value of key: {key}: {err}");
+        })?;
+
+        if count >= self.limit_per_sec * size.as_secs() {
+            return Ok(false);
+        }
+
+        let (_count,): (u64,) = redis::pipe()
             .atomic()
             .zrembyscore(&key, 0, (now.as_millis() - size.as_millis()) as u64)
             .ignore()
@@ -111,7 +120,7 @@ impl RateLimiterRedis {
                 eprintln!("Error: could not set the key-value by sliding log method: {err}")
             })?;
 
-        Ok(count)
+        Ok(true)
     }
 
     pub async fn fetch_sliding_log(
@@ -126,19 +135,6 @@ impl RateLimiterRedis {
         })?;
 
         Ok(count)
-    }
-
-    pub async fn can_make_request_sliding_log(
-        &mut self,
-        key_prefix: &str,
-        resource: &str,
-        subject: &str,
-    ) -> Result<bool, ()> {
-        let count = self
-            .fetch_sliding_log(key_prefix, resource, subject)
-            .await?;
-
-        Ok(count < self.limit_per_sec)
     }
 
     pub async fn record_sliding_window(
@@ -340,7 +336,6 @@ impl RateLimiterRedis {
         Ok(count <= self.limit_per_sec)
     }
 
-    // TODO: expired key?
     pub async fn record_token_bucket(
         &mut self,
         key_prefix: &str,
@@ -364,9 +359,9 @@ impl RateLimiterRedis {
                     redis::pipe()
                         .atomic()
                         .set(&remain_req_key, &self.limit_per_sec * size.as_secs())
-                        .ignore()
+                        .expire(&remain_req_key, size.as_secs() as usize)
                         .set(&last_set_time_key, now.as_secs())
-                        .ignore()
+                        .expire(&last_set_time_key, size.as_secs() as usize)
                         .query(&mut self.conn)
                         .map_err(|err| {
                             eprintln!("Error: could not re-set the remain request by keys: {remain_req_key} and {last_set_time_key}: {err}")
@@ -389,9 +384,9 @@ impl RateLimiterRedis {
                 redis::pipe()
                     .atomic()
                     .set(&last_set_time_key, now.as_secs())
-                    .ignore()
+                    .expire(&last_set_time_key, size.as_secs() as usize)
                     .set(&remain_req_key, &self.limit_per_sec * size.as_secs())
-                    .ignore()
+                    .expire(&remain_req_key, size.as_secs() as usize)
                     .query(&mut self.conn)
                     .map_err(|err| {
                         eprintln!(

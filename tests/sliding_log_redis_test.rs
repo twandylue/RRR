@@ -31,33 +31,24 @@ mod tests {
         initialize_redis().await?;
 
         // arrange
-        let limit_count = 5;
+        let limit_count = 1;
         let mut client = rate_limiter_redis::RateLimiterRedis::open(CONN, limit_count).await?;
         let key_prefix = "test2";
         let resource = "data";
         let subject = "andy";
         let size = Duration::from_secs(1);
 
-        // act
-        for c in 0..11 {
-            client
-                .record_sliding_log(key_prefix, resource, subject, size)
-                .await?;
-
-            let count = client
-                .fetch_sliding_log(key_prefix, resource, subject)
-                .await?;
-
-            assert_eq!(count, c + 1);
-
-            tokio::time::sleep(Duration::from_millis(1)).await;
-        }
-
+        // act && assert
         let actual = client
-            .can_make_request_sliding_log(key_prefix, resource, subject)
+            .record_sliding_log(key_prefix, resource, subject, size)
             .await?;
 
-        // assert
+        assert!(actual);
+
+        let actual = client
+            .record_sliding_log(key_prefix, resource, subject, size)
+            .await?;
+
         assert!(!actual);
 
         Ok(())
@@ -70,33 +61,32 @@ mod tests {
         initialize_redis().await?;
 
         // arrange
-        let limit_count = 20;
+        let limit_count = 1;
         let mut client = rate_limiter_redis::RateLimiterRedis::open(CONN, limit_count).await?;
         let key_prefix = "test2";
         let resource = "data";
         let subject = "andy";
         let size = Duration::from_secs(1);
 
-        // act
-        for c in 0..11 {
-            client
-                .record_sliding_log(key_prefix, resource, subject, size)
-                .await?;
-
-            let count = client
-                .fetch_sliding_log(key_prefix, resource, subject)
-                .await?;
-
-            assert_eq!(count, c + 1);
-
-            tokio::time::sleep(Duration::from_millis(1)).await;
-        }
-
+        // act && assert
         let actual = client
-            .can_make_request_sliding_log(key_prefix, resource, subject)
+            .record_sliding_log(key_prefix, resource, subject, size)
             .await?;
 
-        // assert
+        assert!(actual);
+
+        let actual = client
+            .record_sliding_log(key_prefix, resource, subject, size)
+            .await?;
+
+        assert!(!actual);
+
+        std::thread::sleep(Duration::from_secs(1));
+
+        let actual = client
+            .record_sliding_log(key_prefix, resource, subject, size)
+            .await?;
+
         assert!(actual);
 
         Ok(())
