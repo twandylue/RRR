@@ -143,14 +143,27 @@ impl RateLimiterRedis {
         resource: &str,
         subject: &str,
         size: Duration,
-    ) -> Result<u64, ()> {
+    ) -> Result<bool, ()> {
         let now = SystemTime::now().duration_since(time::UNIX_EPOCH).unwrap();
         let current_window = (now.as_secs() / size.as_secs()) * size.as_secs();
         let current_key = format!("{key_prefix}:{resource}:{subject}:{current_window}");
         let previous_window = (now.as_secs() / size.as_secs()) * size.as_secs() - size.as_secs();
         let previous_key = format!("{key_prefix}:{resource}:{subject}:{previous_window}");
 
-        let (previous_count, current_count): (Option<u64>, Option<u64>) = redis::pipe()
+        let (previous_count, current_count): (Option<u64>, Option<u64>) = self
+            .conn
+            .get(vec![&previous_key, &current_key])
+            .map_err(|err| {
+                eprintln!("Error: could not fetch the key-value in fetch sliding window: {err}")
+            })?;
+
+        let count = Self::sliding_window_counter(previous_count, current_count, now, size);
+
+        if count >= self.limit_per_sec * size.as_secs() {
+            return Ok(false);
+        }
+
+        let (_previous_count, _current_count): (Option<u64>, Option<u64>) = redis::pipe()
             .atomic()
             .get(&previous_key)
             .incr(&current_key, 1)
@@ -161,12 +174,7 @@ impl RateLimiterRedis {
                 eprintln!("Error: could not set the key-value in record sliding window: {err}")
             })?;
 
-        Ok(Self::sliding_window_counter(
-            previous_count,
-            current_count,
-            now,
-            size,
-        ))
+        return Ok(true);
     }
 
     fn sliding_window_counter(
@@ -209,18 +217,6 @@ impl RateLimiterRedis {
             now,
             size,
         ))
-    }
-
-    pub async fn can_make_request_sliding_window(
-        &mut self,
-        key_prefix: &str,
-        resource: &str,
-        subject: &str,
-        size: Duration,
-    ) -> Result<bool, ()> {
-        let count = Self::fetch_sliding_window(self, key_prefix, resource, subject, size).await?;
-
-        Ok(count < self.limit_per_sec)
     }
 
     // TODO:
