@@ -50,7 +50,7 @@ mod tests {
         Ok(())
     }
 
-    /// Tests the requests do not exceed the rate limit.
+    /// Integration: Initiated -> Throttled -> Cool Down -> Refilled
     #[test]
     fn sliding_window_redis_case2() -> Result<(), ()> {
         // prev
@@ -69,16 +69,27 @@ mod tests {
 
         assert!(actual);
 
+        // throttled
         let actual = client.record_sliding_window(key_prefix, resource, subject, size)?;
 
         assert!(!actual);
 
+        // cool down
         // NOTE: since setting expired time as size.as_secs() * 2
         std::thread::sleep(Duration::from_secs(2));
 
+        let count = client.fetch_sliding_window(key_prefix, resource, subject, size)?;
+
+        assert_eq!(count, 0);
+
+        // refilled
         let actual = client.record_sliding_window(key_prefix, resource, subject, size)?;
 
         assert!(actual);
+
+        let count = client.fetch_sliding_window(key_prefix, resource, subject, size)?;
+
+        assert_eq!(count, 1);
 
         Ok(())
     }

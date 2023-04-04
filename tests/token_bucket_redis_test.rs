@@ -48,7 +48,7 @@ mod tests {
         Ok(())
     }
 
-    /// Tests the requests do not exceed the rate limit.
+    /// Integration: Initiated -> Throttled -> Cool Down -> Refilled
     #[test]
     fn token_bucket_redis_case2() -> Result<(), ()> {
         // prev
@@ -66,13 +66,22 @@ mod tests {
         let actual = client.record_token_bucket(key_prefix, resource, subject, size)?;
         assert!(actual);
 
+        // throttled
         let actual = client.record_token_bucket(key_prefix, resource, subject, size)?;
         assert!(!actual);
 
+        // cool down
         std::thread::sleep(Duration::from_secs(1));
 
+        let count = client.fetch_token_bucket(key_prefix, resource, subject, size)?;
+        assert_eq!(count, 1);
+
+        // refilled
         let actual = client.record_token_bucket(key_prefix, resource, subject, size)?;
         assert!(actual);
+
+        let count = client.fetch_token_bucket(key_prefix, resource, subject, size)?;
+        assert_eq!(count, 0);
 
         Ok(())
     }

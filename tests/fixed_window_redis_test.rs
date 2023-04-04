@@ -48,7 +48,7 @@ mod tests {
         Ok(())
     }
 
-    /// Tests the reset in fixed window.
+    /// Integration: Initiated -> Throttled -> Cool Down -> Refilled
     #[test]
     fn fixed_window_redis_case2() -> Result<(), ()> {
         // prev
@@ -66,16 +66,25 @@ mod tests {
         let actual = client.record_fixed_window(key_prefix, resource, subject, size)?;
         assert!(actual);
 
+        let count = client.fetch_fixed_window(key_prefix, resource, subject, size)?;
+        assert_eq!(count, 1);
+
+        // throttled
         let actual = client.record_fixed_window(key_prefix, resource, subject, size)?;
         assert!(!actual);
 
+        // cool down
         std::thread::sleep(Duration::from_secs(1));
+
+        let count = client.fetch_fixed_window(key_prefix, resource, subject, size)?;
+        assert_eq!(count, 0);
 
         let actual = client.record_fixed_window(key_prefix, resource, subject, size)?;
         assert!(actual);
 
-        let actual = client.fetch_fixed_window(key_prefix, resource, subject, size)?;
-        assert_eq!(1, actual);
+        // refilled
+        let count = client.fetch_fixed_window(key_prefix, resource, subject, size)?;
+        assert_eq!(count, 1);
 
         Ok(())
     }
