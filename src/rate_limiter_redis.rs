@@ -80,12 +80,12 @@ impl RateLimiterRedis {
         let window = (now.as_secs() / size.as_secs()) * size.as_secs();
         let key = format!("{key_prefix}:{resource}:{subject}:{window}");
 
-        let count: u64 = self
+        let count: Option<u64> = self
             .conn
             .get(key)
             .map_err(|err| eprintln!("Error: could not get the key from Redis: {err}"))?;
 
-        Ok(count)
+        Ok(count.unwrap_or(0))
     }
 
     pub fn record_sliding_log(
@@ -219,7 +219,7 @@ impl RateLimiterRedis {
         ))
     }
 
-    // TODO:
+    // TODO: need a background service as a consumer.
     pub fn record_leaky_bucket(
         &mut self,
         key_prefix: &str,
@@ -234,7 +234,7 @@ impl RateLimiterRedis {
         let pos = Self::find_pos_in_list(self, &key, curr_window, 1)?;
         let count = match pos {
             Some(n) => {
-                let (c,): (u64,) = redis::pipe()
+                let (count,): (u64,) = redis::pipe()
                     .atomic()
                     .ltrim(&key, n, -1)
                     .ignore()
@@ -243,7 +243,7 @@ impl RateLimiterRedis {
                     .map_err(|err| {
                         eprintln!("Error: could not insert the key-value into Redis: {err}")
                     })?;
-                c
+                count
             }
             None => {
                 let (c,): (u64,) = redis::pipe()
@@ -394,5 +394,42 @@ impl RateLimiterRedis {
             .map_err(|err| eprintln!("Error: could not decrease the value: {err}"))?;
 
         Ok(true)
+    }
+
+    pub fn fetch_token_bucket(
+        &mut self,
+        key_prefix: &str,
+        resource: &str,
+        subject: &str,
+        size: Duration,
+    ) -> Result<u64, ()> {
+        let key = format!("{key_prefix}:{resource}:{subject}");
+        let last_set_time_key = format!("{key}:last_set_time");
+        let remain_req_key = format!("{key}:remain_requests");
+        let (last_set_time,): (Option<u64>,) = redis::pipe()
+            .atomic()
+            .get(&last_set_time_key)
+            .query(&mut self.conn)
+            .map_err(|err| eprintln!("Error: could not get the last setting time: {err}"))?;
+
+        let now = SystemTime::now().duration_since(time::UNIX_EPOCH).unwrap();
+        match last_set_time {
+            Some(last_time) => {
+                if now.as_secs() - last_time >= size.as_secs() {
+                    Ok(self.limit_per_sec * size.as_secs())
+                } else {
+                    let (remain_requests,): (u64,) = redis::pipe()
+                        .atomic()
+                        .get(&remain_req_key)
+                        .query(&mut self.conn)
+                        .map_err(|err| {
+                            eprintln!("Error: could not get the remain requests by keys: {remain_req_key} and {last_set_time_key}: {err}")
+                        })?;
+
+                    Ok(remain_requests)
+                }
+            }
+            None => Ok(self.limit_per_sec * size.as_secs()),
+        }
     }
 }
