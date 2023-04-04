@@ -1,5 +1,5 @@
 // WARN: cargo test --all -- --test-threads 1
-async fn initialize_redis() -> Result<(), ()> {
+fn initialize_redis() -> Result<(), ()> {
     let redis_address: &str = "redis://127.0.0.1:6379/";
     let client = redis::Client::open(redis_address).map_err(|err| {
         eprintln!("Error: could not open the connection to the Redis({redis_address}): {err}")
@@ -26,34 +26,29 @@ mod tests {
 
     /// The key is not expired.
     #[ignore = "skip"]
-    #[tokio::test]
-    async fn leaky_bucket_redis_case1() -> Result<(), ()> {
+    #[test]
+    fn leaky_bucket_redis_case1() -> Result<(), ()> {
         // prev
-        initialize_redis().await?;
+        initialize_redis()?;
 
         // arrange
         let limit_count = 5;
         let size = Duration::from_secs(1);
-        let mut client = rate_limiter_redis::RateLimiterRedis::open(CONN, limit_count).await?;
+        let mut client = rate_limiter_redis::RateLimiterRedis::open(CONN, limit_count)?;
         let key_prefix = "test4";
         let resource = "data";
         let subject = "andy";
 
         // act && assert
         for c in 0..11 {
-            client
-                .record_leaky_bucket(key_prefix, resource, subject, size)
-                .await?;
+            client.record_leaky_bucket(key_prefix, resource, subject, size)?;
 
-            let count = client
-                .fetch_leaky_bucket(key_prefix, resource, subject, size)
-                .await?;
+            let count = client.fetch_leaky_bucket(key_prefix, resource, subject, size)?;
 
             assert_eq!(count, c + 1);
 
-            let permission = client
-                .allow_request_leaky_bucket(key_prefix, resource, subject, size)
-                .await?;
+            let permission =
+                client.allow_request_leaky_bucket(key_prefix, resource, subject, size)?;
 
             if c + 1 <= limit_count {
                 assert!(permission)
@@ -67,31 +62,26 @@ mod tests {
 
     /// The key is expired
     #[ignore = "skip"]
-    #[tokio::test]
-    async fn leaky_bucket_redis_case2() -> Result<(), ()> {
+    #[test]
+    fn leaky_bucket_redis_case2() -> Result<(), ()> {
         // prev
-        initialize_redis().await?;
+        initialize_redis()?;
 
         // arrange
         let limit_rate_per_sec = 1000;
         let size = Duration::from_secs(1);
-        let mut client =
-            rate_limiter_redis::RateLimiterRedis::open(CONN, limit_rate_per_sec).await?;
+        let mut client = rate_limiter_redis::RateLimiterRedis::open(CONN, limit_rate_per_sec)?;
         let key_prefix = "test4";
         let resource = "data";
         let subject = "andy";
 
         // act && assert
         for _ in 0..1500 {
-            client
-                .record_leaky_bucket(key_prefix, resource, subject, size)
-                .await?;
+            client.record_leaky_bucket(key_prefix, resource, subject, size)?;
         }
 
         std::thread::sleep(Duration::from_secs(2));
-        let count = client
-            .fetch_leaky_bucket(key_prefix, resource, subject, size)
-            .await?;
+        let count = client.fetch_leaky_bucket(key_prefix, resource, subject, size)?;
 
         assert_eq!(count, 0);
 
@@ -100,50 +90,32 @@ mod tests {
 
     /// The partial keys are expired
     #[ignore = "skip"]
-    #[tokio::test]
-    async fn leaky_bucket_redis_case3() -> Result<(), ()> {
+    #[test]
+    fn leaky_bucket_redis_case3() -> Result<(), ()> {
         // prev
-        initialize_redis().await?;
+        initialize_redis()?;
 
         // arrange
         let limit_per_sec = 1;
         let size = Duration::from_secs(1);
-        let mut client = rate_limiter_redis::RateLimiterRedis::open(CONN, limit_per_sec).await?;
+        let mut client = rate_limiter_redis::RateLimiterRedis::open(CONN, limit_per_sec)?;
         let key_prefix = "test4";
         let resource = "data";
         let subject = "andy";
 
         // act && assert
-        client
-            .record_leaky_bucket(key_prefix, resource, subject, size)
-            .await?;
+        client.record_leaky_bucket(key_prefix, resource, subject, size)?;
 
-        assert!(
-            client
-                .allow_request_leaky_bucket(key_prefix, resource, subject, size)
-                .await?
-        );
+        assert!(client.allow_request_leaky_bucket(key_prefix, resource, subject, size)?);
 
-        client
-            .record_leaky_bucket(key_prefix, resource, subject, size)
-            .await?;
+        client.record_leaky_bucket(key_prefix, resource, subject, size)?;
 
-        assert!(
-            !client
-                .allow_request_leaky_bucket(key_prefix, resource, subject, size)
-                .await?
-        );
+        assert!(!client.allow_request_leaky_bucket(key_prefix, resource, subject, size)?);
 
         std::thread::sleep(Duration::from_secs(1));
-        assert!(
-            client
-                .allow_request_leaky_bucket(key_prefix, resource, subject, size)
-                .await?
-        );
+        assert!(client.allow_request_leaky_bucket(key_prefix, resource, subject, size)?);
 
-        let count = client
-            .fetch_leaky_bucket(key_prefix, resource, subject, size)
-            .await?;
+        let count = client.fetch_leaky_bucket(key_prefix, resource, subject, size)?;
 
         assert_eq!(count, 0);
 
@@ -152,47 +124,37 @@ mod tests {
 
     /// The partial keys are expired
     #[ignore = "skip"]
-    #[tokio::test]
-    async fn leaky_bucket_redis_case4() -> Result<(), ()> {
+    #[test]
+    fn leaky_bucket_redis_case4() -> Result<(), ()> {
         // prev
-        initialize_redis().await?;
+        initialize_redis()?;
 
         // arrange
         let limit_per_sec = 10;
         let size = Duration::from_secs(1);
-        let mut client = rate_limiter_redis::RateLimiterRedis::open(CONN, limit_per_sec).await?;
+        let mut client = rate_limiter_redis::RateLimiterRedis::open(CONN, limit_per_sec)?;
         let key_prefix = "test4";
         let resource = "data";
         let subject = "andy";
 
         // act && assert
         for _ in 0..6 {
-            client
-                .record_leaky_bucket(key_prefix, resource, subject, size)
-                .await?;
+            client.record_leaky_bucket(key_prefix, resource, subject, size)?;
             std::thread::sleep(Duration::from_millis(1));
         }
 
         std::thread::sleep(Duration::from_millis(500));
 
         for _ in 0..4 {
-            client
-                .record_leaky_bucket(key_prefix, resource, subject, size)
-                .await?;
+            client.record_leaky_bucket(key_prefix, resource, subject, size)?;
             std::thread::sleep(Duration::from_millis(1));
         }
 
         std::thread::sleep(Duration::from_millis(500));
 
-        assert!(
-            client
-                .allow_request_leaky_bucket(key_prefix, resource, subject, size)
-                .await?
-        );
+        assert!(client.allow_request_leaky_bucket(key_prefix, resource, subject, size)?);
 
-        let count = client
-            .fetch_leaky_bucket(key_prefix, resource, subject, size)
-            .await?;
+        let count = client.fetch_leaky_bucket(key_prefix, resource, subject, size)?;
 
         let key = format!("{key_prefix}:{resource}:{subject}");
         print_the_value_in_redis(&key)?;

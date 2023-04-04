@@ -44,7 +44,7 @@ $ cargo test --all -- --test-threads 1
 
 - Cons
 
-### Token Bucked
+### Token Bucket
 
 - Pros
 

@@ -7,7 +7,7 @@ pub struct RateLimiterRedis {
 }
 
 impl RateLimiterRedis {
-    pub async fn open(redis_address: &str, limit_per_sec: u64) -> Result<Self, ()> {
+    pub fn open(redis_address: &str, limit_per_sec: u64) -> Result<Self, ()> {
         let client = redis::Client::open(redis_address).map_err(|err| {
             eprintln!("Error: could not open the connection to the Redis({redis_address}): {err}")
         })?;
@@ -22,7 +22,7 @@ impl RateLimiterRedis {
         })
     }
 
-    pub async fn record_fixed_window(
+    pub fn record_fixed_window(
         &mut self,
         key_prefix: &str,
         resource: &str,
@@ -69,7 +69,7 @@ impl RateLimiterRedis {
         Ok(true)
     }
 
-    pub async fn fetch_fixed_window(
+    pub fn fetch_fixed_window(
         &mut self,
         key_prefix: &str,
         resource: &str,
@@ -88,7 +88,7 @@ impl RateLimiterRedis {
         Ok(count)
     }
 
-    pub async fn record_sliding_log(
+    pub fn record_sliding_log(
         &mut self,
         key_prefix: &str,
         resource: &str,
@@ -123,7 +123,7 @@ impl RateLimiterRedis {
         Ok(true)
     }
 
-    pub async fn fetch_sliding_log(
+    pub fn fetch_sliding_log(
         &mut self,
         key_prefix: &str,
         resource: &str,
@@ -137,7 +137,7 @@ impl RateLimiterRedis {
         Ok(count)
     }
 
-    pub async fn record_sliding_window(
+    pub fn record_sliding_window(
         &mut self,
         key_prefix: &str,
         resource: &str,
@@ -191,7 +191,7 @@ impl RateLimiterRedis {
         current_count.unwrap_or(0) + (previous_count.unwrap_or(0) as f64 * weight).round() as u64
     }
 
-    pub async fn fetch_sliding_window(
+    pub fn fetch_sliding_window(
         &mut self,
         key_prefix: &str,
         resource: &str,
@@ -220,7 +220,7 @@ impl RateLimiterRedis {
     }
 
     // TODO:
-    pub async fn record_leaky_bucket(
+    pub fn record_leaky_bucket(
         &mut self,
         key_prefix: &str,
         resource: &str,
@@ -231,7 +231,7 @@ impl RateLimiterRedis {
         let curr_window = (now.as_secs() / size.as_secs()) * size.as_secs();
         let key = format!("{key_prefix}:{resource}:{subject}");
 
-        let pos = Self::find_pos_in_list(self, &key, curr_window, 1).await?;
+        let pos = Self::find_pos_in_list(self, &key, curr_window, 1)?;
         let count = match pos {
             Some(n) => {
                 let (c,): (u64,) = redis::pipe()
@@ -263,7 +263,7 @@ impl RateLimiterRedis {
     }
 
     // TODO:
-    pub async fn fetch_leaky_bucket(
+    pub fn fetch_leaky_bucket(
         &mut self,
         key_prefix: &str,
         resource: &str,
@@ -278,8 +278,8 @@ impl RateLimiterRedis {
         println!("curr_window: {curr_window}");
         println!("prev_window: {prev_window}");
 
-        let pos = Self::find_pos_in_list(self, &key, curr_window, 1).await?;
-        let prev_pos = Self::find_pos_in_list(self, &key, prev_window, 1).await?;
+        let pos = Self::find_pos_in_list(self, &key, curr_window, 1)?;
+        let prev_pos = Self::find_pos_in_list(self, &key, prev_window, 1)?;
 
         // TODO: discrete problem
         let count = match pos {
@@ -302,12 +302,7 @@ impl RateLimiterRedis {
         Ok(count)
     }
 
-    async fn find_pos_in_list(
-        &mut self,
-        key: &str,
-        ele: u64,
-        rank: isize,
-    ) -> Result<Option<isize>, ()> {
+    fn find_pos_in_list(&mut self, key: &str, ele: u64, rank: isize) -> Result<Option<isize>, ()> {
         let (start_pos,): (Option<isize>,) = redis::pipe()
             .atomic()
             .lpos(&key, ele, LposOptions::default().rank(rank))
@@ -320,19 +315,19 @@ impl RateLimiterRedis {
     }
 
     // TODO:
-    pub async fn allow_request_leaky_bucket(
+    pub fn allow_request_leaky_bucket(
         &mut self,
         key_prefix: &str,
         resource: &str,
         subject: &str,
         size: Duration,
     ) -> Result<bool, ()> {
-        let count = Self::fetch_leaky_bucket(self, key_prefix, resource, subject, size).await?;
+        let count = Self::fetch_leaky_bucket(self, key_prefix, resource, subject, size)?;
 
         Ok(count <= self.limit_per_sec)
     }
 
-    pub async fn record_token_bucket(
+    pub fn record_token_bucket(
         &mut self,
         key_prefix: &str,
         resource: &str,
