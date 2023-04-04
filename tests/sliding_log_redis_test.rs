@@ -1,4 +1,4 @@
-// WARN: cargo test --all -- --test-threads 1
+// NOTE: cargo test --all -- --test-threads 1
 fn initialize_redis() -> Result<(), ()> {
     let redis_address: &str = "redis://127.0.0.1:6379/";
     let client = redis::Client::open(redis_address).map_err(|err| {
