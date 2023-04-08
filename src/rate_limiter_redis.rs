@@ -42,8 +42,8 @@ impl RateLimiterRedis {
             })?;
 
         match curr_count {
-            Some(c) => {
-                if c >= self.limit_per_sec * size.as_secs() {
+            Some(count) => {
+                if count >= self.limit_per_sec * size.as_secs() {
                     return Ok(false);
                 }
             }
@@ -185,6 +185,14 @@ impl RateLimiterRedis {
     ) -> u64 {
         let current_window = (now.as_secs() / size.as_secs()) * size.as_secs();
         let next_window = current_window + size.as_secs();
+        /*
+         *  pre win  curr win
+         * |  size  |  size  |
+         * -------------------
+         *      ^__size__^
+         *      ^---^    ^---^
+         *    section1 = section2 (weight1 = weight2)
+         **/
         let weight = (Duration::from_secs(next_window).as_millis() - now.as_millis()) as f64
             / size.as_millis() as f64;
 
