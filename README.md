@@ -23,7 +23,7 @@ $ cargo test --all -- --test-threads 1
 ### Fixed Window
 
 - Pros
-  - Easy to implement
+  - Easy to implement.
 
 - Cons
   - Accumulating is not distributed uniformly.

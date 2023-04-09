@@ -1,4 +1,4 @@
-use redis::{Commands, Connection, LposOptions};
+use redis::{Commands, Connection};
 use std::time::{self, Duration, SystemTime};
 
 pub struct RateLimiterRedis {
@@ -300,18 +300,6 @@ impl RateLimiterRedis {
             })?;
 
         Ok(count.unwrap_or(0))
-    }
-
-    fn find_pos_in_list(&mut self, key: &str, ele: u64, rank: isize) -> Result<Option<isize>, ()> {
-        let (start_pos,): (Option<isize>,) = redis::pipe()
-            .atomic()
-            .lpos(&key, ele, LposOptions::default().rank(rank))
-            .query(&mut self.conn)
-            .map_err(|err| {
-                eprintln!("Error: could not find the position of element({ele} in the list: {err})")
-            })?;
-
-        Ok(start_pos)
     }
 
     pub fn record_token_bucket(
