@@ -1,8 +1,4 @@
-use rate_limiter_redis::RateLimiterRedis;
-use std::{
-    sync::mpsc::{self, TryRecvError},
-    time::Duration,
-};
+use std::{sync::mpsc::TryRecvError, time::Duration};
 
 mod rate_limiter_redis;
 
@@ -16,7 +12,7 @@ fn main() -> Result<(), ()> {
     let subject = "andy";
 
     // act && assert
-    let (tx, rx) = mpsc::channel::<()>();
+    let (tx, rx) = std::sync::mpsc::channel::<()>();
 
     let _consumer = std::thread::spawn(move || -> Result<(), ()> {
         loop {

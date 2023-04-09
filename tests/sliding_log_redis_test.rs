@@ -69,13 +69,13 @@ mod tests {
 
         assert!(actual);
 
-        // first throttled
+        // throttled
         let actual = client.record_sliding_log(key_prefix, resource, subject, size)?;
 
         assert!(!actual);
 
         // cool down
-        std::thread::sleep(Duration::from_secs(1));
+        std::thread::sleep(Duration::from_secs(2));
 
         let count = client.fetch_sliding_log(key_prefix, resource, subject)?;
         assert_eq!(count, 0);
