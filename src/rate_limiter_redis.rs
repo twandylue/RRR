@@ -227,50 +227,61 @@ impl RateLimiterRedis {
         ))
     }
 
-    // TODO: need a background service as a consumer.
+    pub fn consume_leaky_bucket(
+        &mut self,
+        key_prefix: &str,
+        resource: &str,
+        subject: &str,
+        size: Duration,
+    ) -> Result<(), ()> {
+        let now = SystemTime::now().duration_since(time::UNIX_EPOCH).unwrap();
+        let curr_window = (now.as_secs() / size.as_secs()) * size.as_secs();
+        let next_window = curr_window + size.as_secs();
+        let key = format!("{key_prefix}:{resource}:{subject}");
+
+        redis::pipe()
+            .ltrim(&key, curr_window as isize, next_window as isize)
+            .query(&mut self.conn)
+            .map_err(|err| eprintln!("ERROR: could not consume the element in the queue: {err}"))?;
+
+        Ok(())
+    }
+
     pub fn record_leaky_bucket(
         &mut self,
         key_prefix: &str,
         resource: &str,
         subject: &str,
         size: Duration,
-    ) -> Result<u64, ()> {
+    ) -> Result<bool, ()> {
         let now = SystemTime::now().duration_since(time::UNIX_EPOCH).unwrap();
-        let curr_window = (now.as_secs() / size.as_secs()) * size.as_secs();
         let key = format!("{key_prefix}:{resource}:{subject}");
 
-        let pos = Self::find_pos_in_list(self, &key, curr_window, 1)?;
-        let count = match pos {
-            Some(n) => {
-                let (count,): (u64,) = redis::pipe()
-                    .atomic()
-                    .ltrim(&key, n, -1)
-                    .ignore()
-                    .rpush(&key, curr_window)
-                    .query(&mut self.conn)
-                    .map_err(|err| {
-                        eprintln!("Error: could not insert the key-value into Redis: {err}")
-                    })?;
-                count
-            }
-            None => {
-                let (c,): (u64,) = redis::pipe()
-                    .atomic()
-                    .ltrim(&key, 0, -1)
-                    .ignore()
-                    .rpush(&key, curr_window)
-                    .query(&mut self.conn)
-                    .map_err(|err| {
-                        eprintln!("Error: could not insert the key-value into Redis: {err}")
-                    })?;
-                c
-            }
-        };
+        let (count,): (Option<u64>,) = redis::pipe()
+            .atomic()
+            .llen(&key)
+            .query(&mut self.conn)
+            .map_err(|err| {
+                eprintln!("ERROR: could not get the element number in the queue: {err}")
+            })?;
 
-        Ok(count)
+        if count.unwrap_or(0) >= self.limit_per_sec * size.as_secs() {
+            return Ok(false);
+        }
+
+        let (_count,): (Option<u64>,) = redis::pipe()
+            .atomic()
+            .lpush(&key, now.as_secs() as isize)
+            .expire(&key, size.as_secs() as usize)
+            .ignore()
+            .query(&mut self.conn)
+            .map_err(|err| {
+                eprintln!("ERROR: could not increase the element in the queue: {err}")
+            })?;
+
+        Ok(true)
     }
 
-    // TODO:
     pub fn fetch_leaky_bucket(
         &mut self,
         key_prefix: &str,
@@ -278,36 +289,17 @@ impl RateLimiterRedis {
         subject: &str,
         size: Duration,
     ) -> Result<u64, ()> {
-        let now = SystemTime::now().duration_since(time::UNIX_EPOCH).unwrap();
-        let curr_window = (now.as_secs() / size.as_secs()) * size.as_secs();
-        let prev_window = (now.as_secs() / size.as_secs()) * size.as_secs() - size.as_secs();
         let key = format!("{key_prefix}:{resource}:{subject}");
 
-        println!("curr_window: {curr_window}");
-        println!("prev_window: {prev_window}");
+        let (count,): (Option<u64>,) = redis::pipe()
+            .atomic()
+            .llen(&key)
+            .query(&mut self.conn)
+            .map_err(|err| {
+                eprintln!("ERROR: could not get the element number in the queue: {err}")
+            })?;
 
-        let pos = Self::find_pos_in_list(self, &key, curr_window, 1)?;
-        let prev_pos = Self::find_pos_in_list(self, &key, prev_window, 1)?;
-
-        // TODO: discrete problem
-        let count = match pos {
-            // let count = match prev_pos {
-            Some(n) => {
-                let (c,): (Vec<u64>,) = redis::pipe()
-                    .atomic()
-                    .lrange(&key, n, -1)
-                    // .ignore()
-                    // .llen(&key)
-                    .query(&mut self.conn)
-                    .map_err(|err| {
-                        eprintln!("Error: could not fetch the key-value in Redis: {err}")
-                    })?;
-                c.len() as u64
-            }
-            None => 0,
-        };
-
-        Ok(count)
+        Ok(count.unwrap_or(0))
     }
 
     fn find_pos_in_list(&mut self, key: &str, ele: u64, rank: isize) -> Result<Option<isize>, ()> {
@@ -320,19 +312,6 @@ impl RateLimiterRedis {
             })?;
 
         Ok(start_pos)
-    }
-
-    // TODO:
-    pub fn allow_request_leaky_bucket(
-        &mut self,
-        key_prefix: &str,
-        resource: &str,
-        subject: &str,
-        size: Duration,
-    ) -> Result<bool, ()> {
-        let count = Self::fetch_leaky_bucket(self, key_prefix, resource, subject, size)?;
-
-        Ok(count <= self.limit_per_sec)
     }
 
     pub fn record_token_bucket(
